@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  test:
 
     # Specify the Xcode version to use
     macos:
@@ -30,5 +30,11 @@ jobs:
       - store_test_results:
           path: build/reports/index.html
       - store_artifacts:
-          path: /tmp/test-results
+          path: build/reports/index.html
           destination: scan-test-results
+
+workflows:
+  version: 2
+  build_and_test:
+    jobs:
+      - test
