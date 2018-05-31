@@ -9,6 +9,8 @@ jobs:
     steps:
       - checkout
 
+      - run: bundle install
+
       # Install CocoaPods
       - run:
           name: Install CocoaPods
