@@ -1,0 +1,9 @@
+Archives/
+Pods/
+Podfile.lock
+/Build/
+report.xml
+README.md
+IDEFindNavigatorScopes.plist
+premain_out.txt
+CI-config.xcworkspace/xcuserdata/Tayphoon.xcuserdatad

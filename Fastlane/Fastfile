@@ -1,0 +1,248 @@
+############################ IMPORTS ############################
+fastlane_require 'date'
+fastlane_require 'credentials_manager'
+fastlane_require 'yaml'
+fastlane_require 'fileutils'
+
+######################### PRECONDITIONS #########################
+default_platform :ios
+
+platform :ios do
+
+  before_all do
+    ENV["FASTLANE_XCODE_LIST_TIMEOUT"] = "120"
+  end
+
+  ######################### PUBLIC LANES ##########################
+
+  desc "Submit a new build from development branch to Testflight (testing flow)"
+  lane :testflight_dev do |options|
+
+    # Setting up a new version
+    current_version = get_version_number(xcodeproj: ENV['XCODEPROJ_NAME'])
+    options[:version_number] = current_version
+
+    # Setting up app options
+    setting_app_options(options)
+
+    cocoapods
+
+    # Switching to Testflight lanes
+    pre_upload_action(options)
+    apple_testflight(options)
+    post_upload_action(options)
+
+  end
+
+  desc "Submit a new build from develop branch to Fabric (testing flow)"
+  lane :fabric_dev do |options|
+
+    # Setting up a new version
+    current_version = get_version_number(xcodeproj: ENV['XCODEPROJ_NAME'])
+    options[:version_number] = current_version
+
+    # Setting up the icon badge
+    shield_text = "development"
+    options[:shield_text] = shield_text
+    # Setting up app options
+    setting_app_options(options)
+
+    cocoapods
+
+    # Switching to Testflight and Fabric lanes
+    pre_upload_action(options)
+    fabric(options)
+    post_upload_action(options)
+
+  end
+
+  desc "Run tests"
+  lane :build_tests do
+    output_directory = 'build/reports'
+
+    cocoapods
+
+    scheme_name = get_test_scheme_name()
+
+    scan(
+      scheme: scheme_name,
+      output_directory: output_directory,
+      output_files: 'index.html',
+      output_types: 'html',
+      skip_slack: is_ci?,
+      clean: true,
+      code_coverage: true,
+      devices: ["iPhone 8"]
+    )
+
+  end
+
+  ######################### PRIVATE LANES #########################
+
+  desc "Prepares the build and uploads it to Testflight"
+  private_lane :apple_testflight do |options|
+
+    # Getting version number
+    version_number = options[:version_number]
+    build_number = get_info_plist_value(
+    path: get_info_plist_path(),
+    key: 'CFBundleVersion'
+    )
+
+    # Refreshing provisioning profile
+    app_identifier = main_app_identifier(options)
+
+    match(app_identifier:app_identifier, readonly:true, type:"appstore")
+
+    scheme_name = get_scheme_name()
+
+    # Building the ipa file
+    gym(
+    workspace: ENV['XCWORKSPACE_NAME'],
+    scheme: scheme_name,
+    output_name: scheme_name,
+    configuration: "Release",
+    clean: true,
+    output_directory: "archives",
+    include_symbols: false
+    )
+
+    # Uploading the final IPA file to Testflight (without distribution)
+    ENV["DELIVER_ITMSTRANSPORTER_ADDITIONAL_UPLOAD_PARAMETERS"] = "-t DAV"
+    pilot(skip_submission: true,
+          skip_waiting_for_build_processing:true)
+  end
+
+  desc "Prepares the build and uploads it to Fabric"
+  private_lane :fabric do |options|
+    # Getting version number
+    version_number = options[:version_number]
+    build_number = get_info_plist_value(
+    path: get_info_plist_path(),
+    key: 'CFBundleVersion'
+    )
+
+    # Setting up the icon badge
+    shield_text = options[:shield_text]
+    shield_data = "#{shield_text}-#{version_number}.#{build_number}-green"
+    badge(shield: shield_data, dark: true)
+
+    # Refreshing provisioning profile
+    app_identifier = main_app_identifier(options)
+    match(app_identifier:app_identifier, readonly:true, type:"adhoc")
+
+    scheme_name = get_scheme_name()
+
+    # Building the ipa file
+    gym(
+    workspace: ENV['XCWORKSPACE_NAME'],
+    scheme:scheme_name,
+    output_name: scheme_name,
+    configuration: "AdHoc",
+    clean: true,
+    output_directory: "archives",
+    include_symbols: false
+    )
+
+    # Setting up testers groups for notifications
+    crashlytics_groups = 'testers'
+    custom_crashlytics_groups_string = ENV['FABRIC_GROUPS']
+    crashlytics_groups += ",#{custom_crashlytics_groups_string}" if custom_crashlytics_groups_string && !custom_crashlytics_groups_string.empty?
+
+    # Uploading to Fabric
+    crashlytics(
+    crashlytics_path: "Pods/Crashlytics",
+    api_token: ENV['CRASHLYTICS_API_TOKEN'],
+    build_secret: ENV['CRASHLYTICS_BUILD_SECRET'],
+    notifications: "YES",
+    debug: true,
+    ipa_path: "archives/#{scheme_name}.ipa",
+    groups: crashlytics_groups
+    )
+  end
+
+  ###################### LANE DECOMPOSITION ######################
+
+  def pre_upload_action(options)
+    # New version number has to be specified explicitly
+    version_number = options[:version_number]
+    raise "Missing version number: use version_number parameter" unless version_number != nil
+    Actions.lane_context[SharedValues::VERSION_NUMBER] = version_number
+  end
+
+  def post_upload_action(options)
+    # Some cleaning
+    clean_build_artifacts
+    clear_derived_data
+    git_reset
+  end
+
+  ############################# UTIL ##############################
+
+  def setting_app_options(options)
+    app_identifier = main_app_identifier(options)
+    plist_path = get_info_plist_path()
+
+    options[:app_identifiers] = [app_identifier] unless options[:app_identifiers]
+    options[:app_plists] = [plist_path] unless options[:app_plists]
+  end
+
+  def main_app_identifier(options)
+    main_app_identifier = CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier)
+    main_app_identifier = options[:main_app_identifier] if options[:main_app_identifier]
+
+    main_app_identifier
+  end
+
+  def get_info_plist_path()
+    plist_path = ENV['INFO_PLIST_PATH']
+
+    raise "Missing info plist path: use env to set path" unless plist_path != nil
+
+    File.join(ENV['XCODEPROJ_NAME'], '..', plist_path)
+  end
+
+  def get_scheme_name()
+    scheme_name = ENV['SCHEMA']
+
+    raise "Missing scheme name: use env to set scheme" unless scheme_name != nil
+
+    scheme_name
+  end
+
+  def get_test_scheme_name()
+    scheme_name = ENV['TEST_SCHEMA']
+
+    raise "Missing scheme name: use env to set scheme" unless scheme_name != nil
+
+    scheme_name
+  end
+
+  def increment_build_number(options)
+    # Updates build number
+    current_build = get_info_plist_value(
+    path: get_info_plist_path(),
+    key: 'CFBundleVersion'
+    )
+    build_number = current_build.to_i + 1
+    update_build_number(options, build_number)
+    Actions.lane_context[SharedValues::BUILD_NUMBER] = build_number
+  end
+
+  def update_build_number(options, build_number)
+    app_plists = options[:app_plists]
+
+    if app_plists == nil
+      app_plists = [get_info_plist_path()]
+    end
+
+    app_plists.each { |app_plist|
+      set_info_plist_value(
+      path: app_plist,
+      key: 'CFBundleVersion',
+      value: "#{build_number}"
+      )
+    }
+  end
+
+end

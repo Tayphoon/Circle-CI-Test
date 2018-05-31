@@ -1,0 +1,10 @@
+apple_id 'fastlane.agent@gmail.com'
+team_name 'Inostudio Solutions'
+team_id '2375DJV45D'
+
+for_platform :ios do
+
+  for_lane :testflight do
+    app_identifier 'ru.inostudio.CI-config'
+  end
+end

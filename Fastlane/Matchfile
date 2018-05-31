@@ -1,0 +1,7 @@
+git_url "https://FastlaneAgent@bitbucket.org/inoios/certificates.git"
+git_branch "CI-config"
+
+app_identifier "ru.inostudio.CI-config"
+username "fastlane.agent@gmail.com"
+
+type "development" # The default type, can be: appstore, adhoc or development

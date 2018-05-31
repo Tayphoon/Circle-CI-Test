@@ -1,0 +1,10 @@
+# .slather.yml
+
+coverage_service: cobertura_xml
+xcodeproj: ./CI-config.xcodeproj
+workspace: ./CI-config.xcworkspace
+scheme: CI-config
+source_directory: ./CI-config
+output_directory: build/reports
+ignore:
+- "Pods/*"
