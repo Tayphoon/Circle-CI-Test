@@ -1,4 +1,4 @@
-git_url "https://FastlaneAgent@bitbucket.org/inoios/certificates.git"
+git_url "git@ino.bitbucket.org:inoios/certificates.git"
 git_branch "CI-config"
 
 app_identifier "ru.inostudio.CI-config"
